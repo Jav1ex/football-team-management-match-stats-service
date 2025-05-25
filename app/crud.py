@@ -27,7 +27,9 @@ def update_partido_score(db: Session, partido_id: int, partido: schemas.PartidoU
         return None
     db.execute(models.partido.update().where(models.partido.c.partido_id == partido_id).values(**update_data))
     db.commit()
-    return {**db_partido, **update_data}
+    # Obtener el partido actualizado
+    updated_partido = get_partido(db, partido_id)
+    return dict(updated_partido)
 
 def delete_partido(db: Session, partido_id: int):
     db_partido = get_partido(db, partido_id)
