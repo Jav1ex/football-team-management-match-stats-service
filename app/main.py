@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException, APIRouter, Depends
+from fastapi import FastAPI, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
-from sqlalchemy.orm import Session
-from . import models, schemas, crud
-from .database import get_db
+from .database import database
+from . import models, schemas
+from datetime import date, time
+from .schemas import PartidoUpdate
 
 app = FastAPI()
 
@@ -22,103 +23,145 @@ participa_router = APIRouter(prefix="/participa", tags=["Participa"])
 goles_router = APIRouter(prefix="/goles", tags=["Goles"])
 amonestaciones_router = APIRouter(prefix="/amonestaciones", tags=["Amonestaciones"])
 
+@app.on_event("startup")
+async def startup():
+    await database.connect()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await database.disconnect()
+
 # Partidos
 @partidos_router.post("/", response_model=schemas.Partido)
-async def create_partido(partido: schemas.PartidoCreate, db: Session = Depends(get_db)):
-    return crud.create_partido(db=db, partido=partido)
+async def create_partido(partido: schemas.PartidoCreate):
+    data = partido.dict()
+    data["fecha"] = date.fromisoformat(data["fecha"])
+    data["hora"] = time.fromisoformat(data["hora"])
+    query = models.partido.insert().values(**data)
+    last_id = await database.execute(query)
+    return {**partido.dict(), "partido_id": last_id}
 
 @partidos_router.get("/", response_model=List[schemas.Partido])
-async def read_partidos(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    partidos = crud.get_partidos(db, skip=skip, limit=limit)
-    return partidos
+async def read_partidos():
+    query = models.partido.select()
+    return await database.fetch_all(query)
 
 @partidos_router.get("/{partido_id}", response_model=schemas.Partido)
-async def read_partido(partido_id: int, db: Session = Depends(get_db)):
-    partido = crud.get_partido(db, partido_id=partido_id)
+async def read_partido(partido_id: int):
+    query = models.partido.select().where(models.partido.c.partido_id == partido_id)
+    partido = await database.fetch_one(query)
     if partido is None:
         raise HTTPException(status_code=404, detail="Partido no encontrado")
     return partido
 
 @partidos_router.delete("/{partido_id}")
-async def delete_partido(partido_id: int, db: Session = Depends(get_db)):
-    if crud.delete_partido(db, partido_id=partido_id):
-        return {"deleted": True}
-    raise HTTPException(status_code=404, detail="Partido no encontrado")
+async def delete_partido(partido_id: int):
+    query = models.partido.delete().where(models.partido.c.partido_id == partido_id)
+    result = await database.execute(query)
+    return {"deleted": result}
 
 @partidos_router.patch("/{partido_id}", response_model=schemas.Partido)
-async def update_partido(partido_id: int, partido: schemas.PartidoUpdate, db: Session = Depends(get_db)):
-    updated_partido = crud.update_partido_score(db, partido_id=partido_id, partido=partido)
-    if updated_partido is None:
-        raise HTTPException(status_code=404, detail="Partido no encontrado o no hay datos para actualizar")
-    return updated_partido
+async def update_partido(partido_id: int, partido: schemas.PartidoUpdate):
+    query = models.partido.select().where(models.partido.c.partido_id == partido_id)
+    db_partido = await database.fetch_one(query)
+    if db_partido is None:
+        raise HTTPException(status_code=404, detail="Partido no encontrado")
+    update_data = partido.dict(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No hay datos para actualizar")
+    update_query = (
+        models.partido.update()
+        .where(models.partido.c.partido_id == partido_id)
+        .values(**update_data)
+    )
+    await database.execute(update_query)
+    # Devolver el partido actualizado
+    query = models.partido.select().where(models.partido.c.partido_id == partido_id)
+    return await database.fetch_one(query)
 
 # Participa
 @participa_router.post("/", response_model=schemas.Participa)
-async def create_participa(participa: schemas.ParticipaCreate, db: Session = Depends(get_db)):
-    return crud.create_participa(db=db, participa=participa)
+async def create_participa(participa: schemas.ParticipaCreate):
+    query = models.participa.insert().values(**participa.dict())
+    await database.execute(query)
+    return participa
 
 @participa_router.get("/", response_model=List[schemas.Participa])
-async def read_participa(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return crud.get_participa_list(db, skip=skip, limit=limit)
+async def read_participa():
+    query = models.participa.select()
+    return await database.fetch_all(query)
 
 @participa_router.get("/{partido_id}/{jugador_id}", response_model=schemas.Participa)
-async def read_participa_item(partido_id: int, jugador_id: int, db: Session = Depends(get_db)):
-    participa = crud.get_participa(db, partido_id=partido_id, jugador_id=jugador_id)
+async def read_participa_item(partido_id: int, jugador_id: int):
+    query = models.participa.select().where(
+        (models.participa.c.partido_id == partido_id) &
+        (models.participa.c.jugador_id == jugador_id)
+    )
+    participa = await database.fetch_one(query)
     if participa is None:
         raise HTTPException(status_code=404, detail="Participa no encontrado")
     return participa
 
 @participa_router.delete("/{partido_id}/{jugador_id}")
-async def delete_participa(partido_id: int, jugador_id: int, db: Session = Depends(get_db)):
-    if crud.delete_participa(db, partido_id=partido_id, jugador_id=jugador_id):
-        return {"deleted": True}
-    raise HTTPException(status_code=404, detail="Participa no encontrado")
+async def delete_participa(partido_id: int, jugador_id: int):
+    query = models.participa.delete().where(
+        (models.participa.c.partido_id == partido_id) &
+        (models.participa.c.jugador_id == jugador_id)
+    )
+    result = await database.execute(query)
+    return {"deleted": result}
 
 # Goles
 @goles_router.post("/", response_model=schemas.Gol)
-async def create_gol(gol: schemas.GolCreate, db: Session = Depends(get_db)):
-    return crud.create_gol(db=db, gol=gol)
+async def create_gol(gol: schemas.GolCreate):
+    query = models.gol.insert().values(**gol.dict())
+    last_id = await database.execute(query)
+    return {**gol.dict(), "gol_id": last_id}
 
 @goles_router.get("/", response_model=List[schemas.Gol])
-async def read_goles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    goles = crud.get_goles(db, skip=skip, limit=limit)
-    return goles
+async def read_goles():
+    query = models.gol.select()
+    return await database.fetch_all(query)
 
 @goles_router.get("/{gol_id}", response_model=schemas.Gol)
-async def read_gol(gol_id: int, db: Session = Depends(get_db)):
-    gol = crud.get_gol(db, gol_id=gol_id)
+async def read_gol(gol_id: int):
+    query = models.gol.select().where(models.gol.c.gol_id == gol_id)
+    gol = await database.fetch_one(query)
     if gol is None:
         raise HTTPException(status_code=404, detail="Gol no encontrado")
     return gol
 
 @goles_router.delete("/{gol_id}")
-async def delete_gol(gol_id: int, db: Session = Depends(get_db)):
-    if crud.delete_gol(db, gol_id=gol_id):
-        return {"deleted": True}
-    raise HTTPException(status_code=404, detail="Gol no encontrado")
+async def delete_gol(gol_id: int):
+    query = models.gol.delete().where(models.gol.c.gol_id == gol_id)
+    result = await database.execute(query)
+    return {"deleted": result}
 
 # Amonestaciones
 @amonestaciones_router.post("/", response_model=schemas.Amonestacion)
-async def create_amonestacion(amonestacion: schemas.AmonestacionCreate, db: Session = Depends(get_db)):
-    return crud.create_amonestacion(db=db, amonestacion=amonestacion)
+async def create_amonestacion(amonestacion: schemas.AmonestacionCreate):
+    query = models.amonestacion.insert().values(**amonestacion.dict())
+    last_id = await database.execute(query)
+    return {**amonestacion.dict(), "amonest_id": last_id}
 
 @amonestaciones_router.get("/", response_model=List[schemas.Amonestacion])
-async def read_amonestaciones(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    amonestaciones = crud.get_amonestaciones(db, skip=skip, limit=limit)
-    return amonestaciones
+async def read_amonestaciones():
+    query = models.amonestacion.select()
+    return await database.fetch_all(query)
 
 @amonestaciones_router.get("/{amonest_id}", response_model=schemas.Amonestacion)
-async def read_amonestacion(amonest_id: int, db: Session = Depends(get_db)):
-    amonestacion = crud.get_amonestacion(db, amonest_id=amonest_id)
+async def read_amonestacion(amonest_id: int):
+    query = models.amonestacion.select().where(models.amonestacion.c.amonest_id == amonest_id)
+    amonestacion = await database.fetch_one(query)
     if amonestacion is None:
         raise HTTPException(status_code=404, detail="Amonestación no encontrada")
     return amonestacion
 
 @amonestaciones_router.delete("/{amonest_id}")
-async def delete_amonestacion(amonest_id: int, db: Session = Depends(get_db)):
-    if crud.delete_amonestacion(db, amonest_id=amonest_id):
-        return {"deleted": True}
-    raise HTTPException(status_code=404, detail="Amonestación no encontrada")
+async def delete_amonestacion(amonest_id: int):
+    query = models.amonestacion.delete().where(models.amonestacion.c.amonest_id == amonest_id)
+    result = await database.execute(query)
+    return {"deleted": result}
 
 # Incluir routers
 app.include_router(partidos_router)
