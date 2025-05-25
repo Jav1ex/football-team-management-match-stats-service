@@ -19,15 +19,17 @@ def create_partido(db: Session, partido: schemas.PartidoCreate):
     return db_partido
 
 def update_partido_score(db: Session, partido_id: int, partido: schemas.PartidoUpdate):
-    db_partido = get_partido(db, partido_id)
+    db_partido = db.query(models.partido).filter(models.partido.c.partido_id == partido_id).first()
     if not db_partido:
         return None
+    
     update_data = partido.dict(exclude_unset=True)
-    if not update_data:
-        return None
-    db.execute(models.partido.update().where(models.partido.c.partido_id == partido_id).values(**update_data))
-    db.commit()
-    return {**db_partido, **update_data}
+    
+    if update_data:
+        db.query(models.partido).filter(models.partido.c.partido_id == partido_id).update(update_data)
+        db.commit()
+        return db.query(models.partido).filter(models.partido.c.partido_id == partido_id).first()
+    return None
 
 def delete_partido(db: Session, partido_id: int):
     db_partido = get_partido(db, partido_id)
