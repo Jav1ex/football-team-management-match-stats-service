@@ -1,38 +1,42 @@
-from sqlalchemy import Table, Column, Integer, String, BigInteger, Numeric, Date, ForeignKey, MetaData, Enum
+from sqlalchemy import Table, Column, Integer, String, BigInteger, Numeric, Date, Time, ForeignKey, MetaData, Enum
 from .database import metadata
 
-estadio = Table(
-    "estadio",
+partido = Table(
+    "partido",
     metadata,
-    Column("estadio_id", BigInteger, primary_key=True),
-    Column("nombre", String(100), nullable=False, unique=True),
-    Column("capacidad", Integer, nullable=False),
-    Column("ciudad", String(100), nullable=False),
-    Column("pais", String(100), nullable=False),
-)
-
-equipo = Table(
-    "equipo",
-    metadata,
-    Column("equipo_id", BigInteger, primary_key=True),
-    Column("nombre", String(100), nullable=False, unique=True),
+    Column("partido_id", BigInteger, primary_key=True),
+    Column("temporada_id", BigInteger, ForeignKey("temporada.temporada_id", ondelete="CASCADE"), nullable=False),
+    Column("fecha", Date, nullable=False),
+    Column("hora", Time, nullable=False),
     Column("estadio_id", BigInteger, ForeignKey("estadio.estadio_id", ondelete="RESTRICT"), nullable=False),
-    Column("fecha_fundacion", Date, nullable=False),
-    Column("presupuesto", Numeric(15, 2), nullable=False),
+    Column("equipo_local", BigInteger, ForeignKey("equipo.equipo_id", ondelete="RESTRICT"), nullable=False),
+    Column("equipo_visitante", BigInteger, ForeignKey("equipo.equipo_id", ondelete="RESTRICT"), nullable=False),
+    Column("goles_local", Integer, nullable=False, default=0),
+    Column("goles_visitante", Integer, nullable=False, default=0),
 )
 
-temporada = Table(
-    "temporada",
+participa = Table(
+    "participa",
     metadata,
-    Column("temporada_id", BigInteger, primary_key=True),
-    Column("año_inicio", Integer, nullable=False),
-    Column("año_fin", Integer, nullable=False),
-    Column("nombre_temporada", String(100), nullable=False),
+    Column("partido_id", BigInteger, ForeignKey("partido.partido_id", ondelete="CASCADE"), primary_key=True),
+    Column("jugador_id", BigInteger, ForeignKey("jugador.jugador_id", ondelete="CASCADE"), primary_key=True),
 )
 
-equipo_temporada = Table(
-    "equipo_temporada",
+gol = Table(
+    "gol",
     metadata,
-    Column("equipo_id", BigInteger, ForeignKey("equipo.equipo_id", ondelete="CASCADE"), primary_key=True),
-    Column("temporada_id", BigInteger, ForeignKey("temporada.temporada_id", ondelete="CASCADE"), primary_key=True),
+    Column("gol_id", BigInteger, primary_key=True),
+    Column("partido_id", BigInteger, ForeignKey("partido.partido_id", ondelete="CASCADE"), nullable=False),
+    Column("jugador_id", BigInteger, ForeignKey("jugador.jugador_id", ondelete="CASCADE"), nullable=False),
+    Column("minuto", Integer, nullable=False),
+)
+
+amonestacion = Table(
+    "amonestacion",
+    metadata,
+    Column("amonest_id", BigInteger, primary_key=True),
+    Column("partido_id", BigInteger, ForeignKey("partido.partido_id", ondelete="CASCADE"), nullable=False),
+    Column("jugador_id", BigInteger, ForeignKey("jugador.jugador_id", ondelete="CASCADE"), nullable=False),
+    Column("minuto", Integer, nullable=False),
+    Column("tipo", String(50), nullable=False),
 )
